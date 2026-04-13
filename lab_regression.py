@@ -14,7 +14,9 @@ from sklearn.linear_model import LogisticRegression, Ridge, Lasso
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import (classification_report, confusion_matrix,
-                             mean_absolute_error, r2_score)
+                             mean_absolute_error, r2_score,ConfusionMatrixDisplay)
+
+import matplotlib.pyplot as plt
 
 
 def load_data(filepath="data/telecom_churn.csv"):
@@ -24,7 +26,16 @@ def load_data(filepath="data/telecom_churn.csv"):
         DataFrame with all columns.
     """
     # TODO: Load the CSV and return the DataFrame
-    pass
+    df = pd.read_csv(filepath)
+
+    print("Shape:", df.shape)
+    print("\nMissing values:\n", df.isnull().sum())
+
+    if "churned" in df.columns:
+        print("\nChurn distribution:\n", df["churned"].value_counts(normalize=True))
+
+    return df
+
 
 
 def split_data(df, target_col, test_size=0.2, random_state=42):
@@ -40,7 +51,31 @@ def split_data(df, target_col, test_size=0.2, random_state=42):
         Tuple of (X_train, X_test, y_train, y_test).
     """
     # TODO: Separate features and target, then split with stratification
-    pass
+    X = df.drop(columns=[target_col])
+    y = df[target_col]
+
+    if y.nunique() <= 10:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y,
+            test_size=test_size,
+            random_state=random_state,
+            stratify=y
+        )
+    else:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y,
+            test_size=test_size,
+            random_state=random_state
+        )
+
+    print("\nTrain size:", X_train.shape)
+    print("Test size:", X_test.shape)
+
+    if y.nunique() <= 10:
+        print("Train churn rate:", y_train.mean())
+        print("Test churn rate:", y_test.mean())
+
+    return X_train, X_test, y_train, y_test
 
 
 def build_logistic_pipeline():
@@ -50,7 +85,15 @@ def build_logistic_pipeline():
         sklearn Pipeline object.
     """
     # TODO: Create and return a Pipeline with two steps
-    pass
+    pipe = Pipeline([
+        ("scaler", StandardScaler()),
+        ("model", LogisticRegression(
+            random_state=42,
+            max_iter=1000,
+            class_weight="balanced"
+        ))
+    ])
+    return pipe
 
 
 def build_ridge_pipeline():
@@ -60,7 +103,11 @@ def build_ridge_pipeline():
         sklearn Pipeline object.
     """
     # TODO: Create and return a Pipeline for Ridge regression
-    pass
+    pipe = Pipeline([
+        ("scaler", StandardScaler()),
+        ("model", Ridge(alpha=1.0))
+    ])
+    return pipe
 
 
 def evaluate_classifier(pipeline, X_train, X_test, y_train, y_test):
@@ -75,7 +122,26 @@ def evaluate_classifier(pipeline, X_train, X_test, y_train, y_test):
         Dictionary with keys: 'accuracy', 'precision', 'recall', 'f1'.
     """
     # TODO: Fit the pipeline on training data, predict on test, compute metrics
-    pass
+    pipeline.fit(X_train, y_train)
+
+    y_pred = pipeline.predict(X_test)
+
+    print("\nClassification Report:\n", classification_report(y_test, y_pred))
+
+    cm = confusion_matrix(y_test, y_pred)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+    disp.plot()
+    plt.show()
+
+    report = classification_report(y_test, y_pred, output_dict=True)
+
+    return {
+        "accuracy": report["accuracy"],
+        "precision": report["1"]["precision"],
+        "recall": report["1"]["recall"],
+        "f1": report["1"]["f1-score"]
+    }
+
 
 
 def evaluate_regressor(pipeline, X_train, X_test, y_train, y_test):
@@ -90,7 +156,21 @@ def evaluate_regressor(pipeline, X_train, X_test, y_train, y_test):
         Dictionary with keys: 'mae', 'r2'.
     """
     # TODO: Fit the pipeline, predict, and compute MAE and R²
-    pass
+    pipeline.fit(X_train, y_train)
+
+    y_pred = pipeline.predict(X_test)
+
+    mae = mean_absolute_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+
+    print("\nMAE:", mae)
+    print("R2:", r2)
+
+    return {
+        "mae": mae,
+        "r2": r2
+    }
+
 
 
 def run_cross_validation(pipeline, X_train, y_train, cv=5):
@@ -106,7 +186,22 @@ def run_cross_validation(pipeline, X_train, y_train, cv=5):
         Array of cross-validation scores.
     """
     # TODO: Run cross_val_score with StratifiedKFold
-    pass
+    cv_splitter = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+    scores = cross_val_score(
+        pipeline,
+        X_train,
+        y_train,
+        cv=cv_splitter,
+        scoring="accuracy"
+    )
+
+    print("\nCV scores:", scores)
+    print("Mean:", scores.mean())
+    print("Std:", scores.std())
+
+    return scores
+
 
 
 if __name__ == "__main__":
@@ -144,3 +239,39 @@ if __name__ == "__main__":
             if ridge_pipe:
                 reg_metrics = evaluate_regressor(ridge_pipe, X_tr, X_te, y_tr, y_te)
                 print(f"Ridge Regression: {reg_metrics}")
+
+
+
+# =========================
+# TASK 7: SUMMARY OF FINDINGS
+# =========================
+
+# 1. Most important features for predicting churn:
+# Based on the dataset and model behavior, the most influential features are likely:
+# - tenure (how long the customer stayed)
+# - contract_type (contract stability)
+# - monthly_charges (cost sensitivity)
+# - num_support_calls (customer dissatisfaction indicator)
+#
+# These features are typically strong predictors because churn is often driven by
+# customer dissatisfaction, contract flexibility, and cost.
+
+# 2. Logistic Regression performance:
+# - Accuracy ≈ 0.63 (moderate performance)
+# - Precision for class 1 (churn) is low (~0.23), meaning many predicted churns are incorrect
+# - Recall for class 1 is better (~0.51), meaning the model catches about half of actual churners
+#
+# IMPORTANT:
+# Recall is more critical in this problem than precision because:
+# - The goal is to identify customers who are likely to leave
+# - Missing a churned customer (false negative) is worse than a false alarm
+#
+# Therefore, improving recall should be a priority.
+
+# 3. Recommendations for next steps:
+# - Try more powerful models (Random Forest, Gradient Boosting, XGBoost)
+# - Improve feature engineering (interaction features, customer behavior patterns)
+# - Handle class imbalance more aggressively (SMOTE or tuning class weights)
+# - Hyperparameter tuning for Logistic Regression (C, penalty)
+# - Add more behavioral features if available (usage patterns, tenure trends)
+# - Try threshold tuning instead of default 0.5 for better recall                
